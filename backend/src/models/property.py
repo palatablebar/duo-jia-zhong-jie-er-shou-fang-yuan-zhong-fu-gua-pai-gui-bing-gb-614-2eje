@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import JSON, DateTime, Float, ForeignKey, Integer, String
+from sqlalchemy import JSON, Boolean, DateTime, Float, ForeignKey, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from src.models import Base
@@ -37,6 +37,12 @@ class Property(Base):
     run_id: Mapped[int | None] = mapped_column(
         ForeignKey("match_runs.id", ondelete="SET NULL"), nullable=True, index=True
     )
+    # 受影响次数：上游修正导致证据失效 / 主档内容变化时 +1；确认单按 revision 对齐
+    revision: Mapped[int] = mapped_column(Integer, default=0)
+    # 最近一次重算是否仍产生该簇（保留复核历史的过期簇为 False，不进银行清单）
+    is_current: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
+    # 面积/价格/户型是否都至少有一条有效证据（银行清单的「证据齐全」门槛）
+    evidence_complete: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
     seeded_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)

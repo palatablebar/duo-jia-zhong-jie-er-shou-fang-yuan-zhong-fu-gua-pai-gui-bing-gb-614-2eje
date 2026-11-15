@@ -22,6 +22,7 @@ export const NAV = [
   { to: '#/listings', no: '03', label: '挂牌明细', permission: 'listing:read' },
   { to: '#/clusters', no: '04', label: '归并簇', permission: 'property:read' },
   { to: '#/reviews', no: '05', label: '复核与导出', permission: 'review:read' },
+  { to: '#/bank', no: '06', label: '银行清单', permission: 'bank_list:read' },
 ];
 
 export const ROLE_LABELS = {
@@ -33,13 +34,20 @@ export const ROLE_LABELS = {
 export const PERMISSIONS = {
   admin: [
     'overview:read', 'agency:read', 'agency:write', 'listing:read', 'property:read',
-    'run:read', 'run:create', 'review:read', 'review:write', 'export:read', 'audit:read',
+    'run:read', 'run:create', 'review:read', 'review:write',
+    'correction:read', 'correction:create', 'evidence:read', 'property:confirm', 'bank_list:read',
+    'export:read', 'audit:read',
   ],
   analyst: [
     'overview:read', 'agency:read', 'listing:read', 'property:read',
-    'run:read', 'run:create', 'review:read', 'review:write', 'export:read',
+    'run:read', 'run:create', 'review:read', 'review:write',
+    'correction:read', 'correction:create', 'evidence:read', 'property:confirm', 'bank_list:read',
+    'export:read',
   ],
-  viewer: ['overview:read', 'agency:read', 'listing:read', 'property:read', 'run:read', 'review:read'],
+  viewer: [
+    'overview:read', 'agency:read', 'listing:read', 'property:read', 'run:read', 'review:read',
+    'correction:read', 'evidence:read', 'bank_list:read',
+  ],
 };
 
 export const ENUMS = {
@@ -50,7 +58,12 @@ export const ENUMS = {
   runStatus: { queued: '排队中', running: '执行中', success: '成功', partial: '部分成功', failed: '失败' },
   reviewStatus: { pending: '待复核', confirmed: '已确认', dismissed: '已驳回' },
   reviewReason: { bait: '疑似钓鱼价', stale: '疑似僵尸挂牌', spread: '簇内价差异常', manual: '人工抽查' },
-  trigger: { manual: '手动', schedule: '定时', seed: '初始化' },
+  trigger: { manual: '手动', schedule: '定时', seed: '初始化', correction: '修正重算' },
+  evidenceField: { area: '面积', price: '价格', layout: '户型' },
+  evidenceStatus: { valid: '有效', invalidated: '已失效' },
+  evidenceRule: { mode: '簇内众数', median: '簇内中位' },
+  confirmationState: { pending: '待确认', confirmed: '已确认', reconfirmed: '受影响后重新确认' },
+  correctionSource: { agency_feed: '中介回传', manual: '人工登记', api: '接口推送' },
 };
 
 export function can(role, permission) {
@@ -71,6 +84,10 @@ export function reviewTone(status) {
 
 export function tagTone(tag) {
   return { bait: 'danger', stale: 'warn', spread: 'info' }[tag] || '';
+}
+
+export function confirmationTone(state) {
+  return { pending: 'warn', confirmed: 'ok', reconfirmed: 'info' }[state] || '';
 }
 
 /** 金额（元）-> 万元展示，保留一位小数以内。 */

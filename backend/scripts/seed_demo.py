@@ -16,7 +16,7 @@ from src.models.match_run import MatchRun
 from src.models.property import Property
 from src.models.review import Review
 from src.models.user import User
-from src.services import match_run_service, review_service
+from src.services import evidence_service, match_run_service, review_service
 from src.utils.security import hash_password
 
 from scripts.demo_config import (
@@ -162,6 +162,12 @@ def ensure_audit(db) -> None:
     db.flush()
 
 
+def ensure_evidence(db) -> None:
+    """老库升级 / 首次 seed 后补齐字段证据（幂等：已有有效证据的簇跳过）。"""
+    run = db.scalar(select(MatchRun).order_by(MatchRun.id.desc()).limit(1))
+    evidence_service.ensure_coverage(db, run_id=run.id if run else None)
+
+
 def seed_all() -> dict:
     with session_scope() as db:
         users = ensure_users(db)
@@ -170,6 +176,7 @@ def seed_all() -> dict:
         runs = ensure_runs(db)
         ensure_reviews(db)
         ensure_audit(db)
+        ensure_evidence(db)
         clusters = db.scalar(select(func.count()).select_from(Property)) or 0
         pending = db.scalar(select(func.count()).select_from(Review).where(Review.status == "pending")) or 0
         summary = (

@@ -1,4 +1,4 @@
-"""导出服务：归并簇 / 挂牌明细 / 复核单 CSV（含两个算法的结果列）。"""
+"""导出服务：归并簇 / 挂牌明细 / 复核单 / 银行清单 CSV（含两个算法的结果列）。"""
 from __future__ import annotations
 
 from sqlalchemy import select
@@ -15,6 +15,7 @@ from src.models.agency import Agency
 from src.models.listing import Listing
 from src.models.property import Property
 from src.models.review import Review
+from src.services import bank_list_service
 from src.utils.csv_export import to_csv
 from src.utils.timeutil import local_stamp
 
@@ -121,6 +122,56 @@ def listings_csv(db: Session, agency_id: int | None = None) -> bytes:
                 prop.risk_score if prop else "",
                 _tags(listing.risk_tags),
                 " / ".join(listing.parse_flags or []),
+            ]
+        )
+    return to_csv(headers, rows)
+
+
+def _evidence_cell(supporters: list[dict]) -> str:
+    """字段证据摘要：中介《原文》逐条列出。"""
+    return " / ".join(f"{item['agency_name']}《{item['source_text']}》" for item in supporters) or "-"
+
+
+def bank_list_csv(db: Session) -> bytes:
+    """银行清单：只含当前有效且证据齐全的房源，标出受影响后重新确认的结果。"""
+    items = bank_list_service.bank_list_rows(db)
+    headers = [
+        "簇编号",
+        "小区",
+        "户型",
+        "面积众数(㎡)",
+        "价格中位(元)",
+        "中介数",
+        "成员挂牌数",
+        "证据-面积",
+        "证据-价格",
+        "证据-户型",
+        "确认状态",
+        "受影响后重新确认",
+        "确认人",
+        "确认时间",
+        "最近受影响时间",
+    ]
+    rows = []
+    for item in items:
+        evidence = item["evidence"]
+        rows.append(
+            [
+                item["property_id"],
+                item["community"],
+                item["layout"],
+                f"{item['area_mode']:g}",
+                item["price_median"],
+                item["agency_count"],
+                item["member_count"],
+                _evidence_cell(evidence["area"]["supporters"]),
+                _evidence_cell(evidence["price"]["supporters"]),
+                _evidence_cell(evidence["layout"]["supporters"]),
+                item["confirmation_state_label"],
+                "是" if item["reconfirmed"] else "否",
+                item["confirmed_by"] or "",
+                item["confirmed_at"] or "",
+                item["last_affected_at"] or "",
             ]
         )
     return to_csv(headers, rows)

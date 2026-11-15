@@ -8,6 +8,7 @@ import agenciesPage from './pages/agencies.js';
 import listingsPage from './pages/listings.js';
 import clustersPage from './pages/clusters.js';
 import reviewsPage from './pages/reviews.js';
+import bankPage from './pages/bank.js';
 
 const routes = [
   { path: '#/overview', page: overviewPage, permission: 'overview:read' },
@@ -15,6 +16,7 @@ const routes = [
   { path: '#/listings', page: listingsPage, permission: 'listing:read' },
   { path: '#/clusters', page: clustersPage, permission: 'property:read' },
   { path: '#/reviews', page: reviewsPage, permission: 'review:read' },
+  { path: '#/bank', page: bankPage, permission: 'bank_list:read' },
 ];
 
 let currentUser = null;

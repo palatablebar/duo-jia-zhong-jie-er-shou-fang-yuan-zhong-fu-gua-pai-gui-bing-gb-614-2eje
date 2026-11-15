@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
 from src.config.database import get_db
-from src.controllers import listing_controller
+from src.controllers import correction_controller, listing_controller
 from src.middlewares.rbac import READ_ROLES, require_roles
 from src.utils.pagination import page_params
 
@@ -41,3 +41,10 @@ def get_listing(
     listing_id: int, db: Session = Depends(get_db), principal: dict = Depends(require_roles(*READ_ROLES))
 ) -> dict:
     return listing_controller.get_listing(db, listing_id)
+
+
+@router.get("/{listing_id}/corrections")
+def get_listing_corrections(
+    listing_id: int, db: Session = Depends(get_db), principal: dict = Depends(require_roles(*READ_ROLES))
+) -> dict:
+    return correction_controller.listing_corrections(db, listing_id)

@@ -4,11 +4,11 @@ from __future__ import annotations
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
-from src.constants.enums import RISK_LEVEL_LABELS, RISK_TAG_LABELS
+from src.constants.enums import CONFIRMATION_STATE_LABELS, RISK_LEVEL_LABELS, RISK_TAG_LABELS
 from src.models.agency import Agency
 from src.models.listing import Listing
 from src.models.property import Property
-from src.services import listing_service
+from src.services import evidence_service, listing_service
 from src.utils.errors import not_found
 from src.utils.timeutil import iso_utc
 
@@ -41,6 +41,9 @@ def serialize(prop: Property, agency_names: list[str] | None = None) -> dict:
         "risk_detail": prop.risk_detail or {},
         "agency_names": agency_names or [],
         "run_id": prop.run_id,
+        "revision": prop.revision,
+        "is_current": prop.is_current,
+        "evidence_complete": prop.evidence_complete,
         "updated_at": iso_utc(prop.updated_at),
     }
 
@@ -125,6 +128,19 @@ def get_property(db: Session, property_id: int) -> dict:
         item["is_stale"] = "stale" in (listing.risk_tags or [])
         members.append(item)
     payload["members"] = members
+    payload["evidence"] = evidence_service.property_evidence(db, prop.id)
+    confirmation = evidence_service.latest_confirmation(db, prop.id)
+    state = evidence_service.confirmation_state(prop, confirmation)
+    payload["confirmation"] = {
+        "state": state,
+        "state_label": CONFIRMATION_STATE_LABELS.get(state, state),
+        "revision": prop.revision,
+        "confirmed_by": confirmation.confirmed_by if confirmation and confirmation.revision >= prop.revision else None,
+        "confirmed_at": iso_utc(confirmation.created_at)
+        if confirmation and confirmation.revision >= prop.revision
+        else None,
+        "last_affected_at": evidence_service.last_affected_at(db, prop.id),
+    }
     return payload
 
 

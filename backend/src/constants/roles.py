@@ -24,6 +24,8 @@ PERMISSIONS: dict[str, set[str]] = {
         "listing:read", "property:read",
         "run:read", "run:create",
         "review:read", "review:write",
+        "correction:read", "correction:create",
+        "evidence:read", "property:confirm", "bank_list:read",
         "export:read", "audit:read", "overview:read",
     },
     Role.ANALYST.value: {
@@ -31,16 +33,21 @@ PERMISSIONS: dict[str, set[str]] = {
         "listing:read", "property:read",
         "run:read", "run:create",
         "review:read", "review:write",
+        "correction:read", "correction:create",
+        "evidence:read", "property:confirm", "bank_list:read",
         "export:read", "overview:read",
     },
     Role.VIEWER.value: {
-        "agency:read", "listing:read", "property:read", "run:read", "review:read", "overview:read",
+        "agency:read", "listing:read", "property:read", "run:read", "review:read",
+        "correction:read", "evidence:read", "bank_list:read", "overview:read",
     },
 }
 
 AGENCY_WRITE_ROLES = (Role.ADMIN.value,)
 RUN_CREATE_ROLES = (Role.ADMIN.value, Role.ANALYST.value)
 REVIEW_ROLES = (Role.ADMIN.value, Role.ANALYST.value)
+CORRECTION_ROLES = (Role.ADMIN.value, Role.ANALYST.value)
+CONFIRM_ROLES = (Role.ADMIN.value, Role.ANALYST.value)
 EXPORT_ROLES = (Role.ADMIN.value, Role.ANALYST.value)
 AUDIT_ROLES = (Role.ADMIN.value,)
 READ_ROLES = (Role.ADMIN.value, Role.ANALYST.value, Role.VIEWER.value)

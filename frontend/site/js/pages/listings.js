@@ -1,6 +1,6 @@
 import { api } from '../api.js';
-import { ENUMS, riskTone, statusTone, tagTone, wan } from '../config.js';
-import { drawer, errorBox, errorMessage, esc, field, fmtTime, kv, table } from '../ui.js';
+import { ENUMS, can, riskTone, statusTone, tagTone, wan } from '../config.js';
+import { drawer, errorBox, errorMessage, esc, field, fmtTime, kv, table, toast } from '../ui.js';
 
 const state = { q: '', agencyId: '', status: '', risk: '', propertyId: '' };
 
@@ -8,11 +8,58 @@ function pairCell(raw, norm) {
   return `<div class="pair"><span class="raw">${esc(raw)}</span><span class="arrow">→</span><span class="norm">${esc(norm)}</span></div>`;
 }
 
+const CORRECTABLE_FIELDS = [
+  ['community_raw', '小区原文'],
+  ['layout_raw', '户型原文'],
+  ['area_raw', '面积原文'],
+  ['price_raw', '价格原文'],
+  ['floor_raw', '楼层原文'],
+  ['orientation_raw', '朝向原文'],
+];
+
+async function loadCorrections(root, item) {
+  const node = root.querySelector('#corrections-list');
+  if (!node) return;
+  try {
+    const data = await api.get(`/api/listings/${item.id}/corrections`);
+    node.innerHTML = data.items.length
+      ? `<table class="data compact"><thead><tr><th>版本</th><th>变更</th><th>来源</th><th>时间</th></tr></thead><tbody>${data.items
+          .map(
+            (row) => `<tr>
+              <td class="mono">v${esc(row.version)}${row.noop ? ' <span class="badge">无变化</span>' : ''}</td>
+              <td>${(row.changes || [])
+                .map((change) => `<div class="pair"><span class="raw">${esc(change.field)}: ${esc(change.old)}</span><span class="arrow">→</span><span class="norm">${esc(change.new)}</span></div>`)
+                .join('') || '<span class="muted">与现值一致</span>'}</td>
+              <td>${esc(ENUMS.correctionSource[row.source] || row.source)}<div class="mono muted">${esc(row.correction_key)}</div></td>
+              <td class="mono muted">${fmtTime(row.created_at)}</td>
+            </tr>`,
+          )
+          .join('')}</tbody></table>`
+      : '<p class="note">还没有修正版本，当前为原始采集版本 v0。</p>';
+  } catch (err) {
+    node.innerHTML = `<p class="note">${esc(errorMessage(err))}</p>`;
+  }
+}
+
+function correctionForm(item) {
+  const suggested = `corr-${item.agency_code}-${item.lid}-${Date.now().toString(36)}`;
+  return `<h3 style="margin:14px 0 8px;font-size:0.95rem">登记上游修正</h3>
+    <form id="correction-form" style="display:grid;gap:10px">
+      ${field({ label: '修正单号（幂等键，重试不重复入库）', name: 'correction_key', value: suggested, placeholder: '上游修正单号' })}
+      ${CORRECTABLE_FIELDS.map(([name, label]) => field({ label, name, value: item[name] || '', placeholder: '不修改则保持原值' })).join('')}
+      ${field({ label: '备注', name: 'note', value: '', placeholder: '例如：中介电话确认面积口径为建面' })}
+      <button class="btn accent" type="submit">应用修正并重算</button>
+      <span class="muted" style="font-size:var(--fs-xs)">提交后：受影响证据失效 → 相关房源簇重算 → 银行清单待重新确认</span>
+    </form>`;
+}
+
 function openListing(view, ctx, item) {
   const flags = item.parse_flags || [];
-  const { root } = drawer({
+  const canCorrect = can(ctx.user.role, 'correction:create');
+  const { root, close } = drawer({
     title: `${item.community_raw.trim()} · ${item.layout_raw}`,
     subtitle: `${item.lid} · ${item.agency_name} · ${fmtTime(item.captured_at)}`,
+    wide: true,
     body: `${kv([
       ['小区', `${pairCell(item.community_raw, item.norm.community)}`],
       ['户型', `${pairCell(item.layout_raw, item.norm.layout)}`],
@@ -24,6 +71,7 @@ function openListing(view, ctx, item) {
       ['挂牌天数 / 带看', `<span class="mono">${esc(item.listed_days)} 天 · ${esc(item.views)} 次</span>`],
       ['所属簇', item.property_id ? `<span class="mono">#${esc(item.property_id)} ${esc(item.property_community || '')} ${esc(item.property_layout || '')}</span>` : '未入簇'],
       ['风险标签', (item.risk_tags || []).length ? item.risk_tags.map((tag) => `<span class="badge ${tagTone(tag)}">${esc(ENUMS.riskTag[tag] || tag)}</span>`).join(' ') : '—'],
+      ['当前版本', item.current_correction_id ? `<span class="mono">修正版 #${esc(item.current_correction_id)}</span>` : '原始采集 v0'],
     ])}
     <h3 style="margin:14px 0 8px;font-size:0.95rem">归一标记</h3>
     <div class="chips">${
@@ -34,13 +82,45 @@ function openListing(view, ctx, item) {
     <div class="chips" style="margin-top:8px">${(item.norm.title_tokens || [])
       .slice(0, 18)
       .map((token) => `<span class="chip">${esc(token)}</span>`)
-      .join('')}</div>`,
+      .join('')}</div>
+    <h3 style="margin:14px 0 8px;font-size:0.95rem">修正版本</h3>
+    <div id="corrections-list"><span class="muted">读取修正版本…</span></div>
+    ${canCorrect ? correctionForm(item) : '<p class="note" style="margin-top:10px">只读角色可查看修正版本，登记修正需要数据专员或管理员。</p>'}`,
     footer: item.property_id
       ? `<button class="btn accent" data-cluster>查看归并簇 #${esc(item.property_id)}</button>`
       : '<span class="mono muted">该挂牌尚未进入任何簇</span>',
   });
+  loadCorrections(root, item);
   root.querySelector('[data-cluster]')?.addEventListener('click', () => {
     ctx.navigate(`#/clusters?focus=${item.property_id}`);
+  });
+  root.querySelector('#correction-form')?.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const form = event.target;
+    const changes = {};
+    CORRECTABLE_FIELDS.forEach(([name]) => {
+      const value = form[name].value.trim();
+      if (value && value !== (item[name] || '')) changes[name] = value;
+    });
+    if (!Object.keys(changes).length) {
+      toast('没有填写任何变更字段', 'err');
+      return;
+    }
+    try {
+      const result = await api.post('/api/corrections', {
+        correction_key: form.correction_key.value.trim(),
+        agency_code: item.agency_code,
+        lid: item.lid,
+        changes,
+        source: 'manual',
+        note: form.note.value.trim() || null,
+      });
+      toast(result.message || '修正已应用');
+      close();
+      await listingsPage.render(view, ctx);
+    } catch (err) {
+      toast(errorMessage(err), 'err');
+    }
   });
 }
 

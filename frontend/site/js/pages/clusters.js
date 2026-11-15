@@ -1,5 +1,5 @@
 import { api } from '../api.js';
-import { ENUMS, can, pct, riskTone, tagTone, wan } from '../config.js';
+import { ENUMS, can, confirmationTone, pct, riskTone, tagTone, wan } from '../config.js';
 import { badge, drawer, emptyState, errorBox, errorMessage, esc, field, fmtTime, kv, table, toast } from '../ui.js';
 
 const state = { q: '', riskLevel: '', tag: '', multi: '', sort: 'risk', threshold: '0.80' };
@@ -36,6 +36,40 @@ function memberTable(members) {
     <tbody>${rows}</tbody></table></div>`;
 }
 
+function evidenceSection(evidence) {
+  if (!evidence) return '';
+  return ['area', 'price', 'layout']
+    .map((key) => {
+      const entry = evidence[key] || { current: [], history: [] };
+      const current = (entry.current || [])
+        .map(
+          (row) => `<tr>
+            <td>${esc(row.agency_name)}<div class="mono muted">${esc(row.lid || '')}${row.correction_id ? ` · 修正版#${esc(row.correction_id)}` : ''}</div></td>
+            <td class="mono">${esc(row.source_text)}</td>
+            <td>${esc(ENUMS.evidenceRule[row.rule] || row.rule)}</td>
+            <td><span class="badge ok">${esc(row.status_label)}</span></td>
+          </tr>`,
+        )
+        .join('');
+      const history = (entry.history || [])
+        .slice(-3)
+        .map(
+          (row) => `<tr class="muted">
+            <td>${esc(row.agency_name)}<div class="mono muted">${esc(row.lid || '')}</div></td>
+            <td class="mono">${esc(row.source_text)}</td>
+            <td>${esc(ENUMS.evidenceRule[row.rule] || row.rule)}</td>
+            <td><span class="badge danger">${esc(row.status_label)}</span></td>
+          </tr>`,
+        )
+        .join('');
+      return `<h3 style="margin:14px 0 8px;font-size:0.95rem">${esc(ENUMS.evidenceField[key])}证据
+          <span class="mono muted">采信值 ${esc(entry.value || '—')}</span>
+          ${entry.complete ? '<span class="badge ok">齐全</span>' : '<span class="badge danger">缺失</span>'}</h3>
+        ${current || history ? `<table class="data compact"><thead><tr><th>中介 / 编号</th><th>采集原文</th><th>规则</th><th>状态</th></tr></thead><tbody>${current}${history}</tbody></table>` : '<p class="note">该字段暂无证据。</p>'}`;
+    })
+    .join('');
+}
+
 async function openCluster(view, ctx, summary) {
   let prop;
   try {
@@ -45,7 +79,9 @@ async function openCluster(view, ctx, summary) {
     return;
   }
   const detail = prop.risk_detail || {};
-  const { root } = drawer({
+  const confirmation = prop.confirmation || {};
+  const canConfirm = can(ctx.user.role, 'property:confirm');
+  const { root, close } = drawer({
     title: `${prop.community} · ${prop.layout}`,
     subtitle: `簇 #${prop.id} · ${prop.member_count} 条挂牌 / ${prop.agency_count} 家中介 · 置信 ${prop.confidence.toFixed(3)}`,
     wide: true,
@@ -58,15 +94,31 @@ async function openCluster(view, ctx, summary) {
       ['风险标签', (prop.risk_tags || []).map((tag) => `<span class="badge ${tagTone(tag)}">${esc(ENUMS.riskTag[tag] || tag)}</span>`).join(' ') || '—'],
       ['钓鱼价挂牌', (detail.bait_lids || []).length ? `<span class="mono">${esc(detail.bait_lids.join(' / '))}</span>` : '—'],
       ['僵尸挂牌', (detail.stale_lids || []).length ? `<span class="mono">${esc(detail.stale_lids.join(' / '))}</span>` : '—'],
+      ['证据齐全', prop.evidence_complete ? '<span class="badge ok">齐全</span>' : '<span class="badge danger">不齐全</span>'],
+      ['确认状态', `${badge(confirmationTone(confirmation.state), confirmation.state_label || '待确认')}${confirmation.state === 'reconfirmed' ? ' <span class="badge info">重新确认</span>' : ''}`],
+      ['最近受影响', confirmation.last_affected_at ? fmtTime(confirmation.last_affected_at) : '未被修正波及'],
       ['golden record 更新', fmtTime(prop.updated_at)],
     ])}
     <h3 style="margin:14px 0 8px;font-size:0.95rem">成员对照（算法 A 连边结果）</h3>
     ${memberTable(prop.members || [])}
-    <p class="note">面积取众数、价格取中位、中介数去重计数；偏离 = (该条价格 − 簇中位) / 簇中位，低于 −10% 记为钓鱼价。</p>`,
-    footer: `<button class="btn ghost" data-listings>查看该簇全部挂牌</button>`,
+    <h3 style="margin:14px 0 8px;font-size:0.95rem">字段证据（主档每个字段的采信来源）</h3>
+    ${evidenceSection(prop.evidence)}
+    <p class="note">面积取众数、价格取中位、中介数去重计数；偏离 = (该条价格 − 簇中位) / 簇中位，低于 −10% 记为钓鱼价。上游修正到达后，引用旧版本的证据作废留痕，重算后落新证据。</p>`,
+    footer: `<button class="btn ghost" data-listings>查看该簇全部挂牌</button>
+      ${canConfirm && prop.evidence_complete ? '<button class="btn accent" data-confirm>确认当前主档</button>' : ''}`,
   });
   root.querySelector('[data-listings]')?.addEventListener('click', () => {
     ctx.navigate(`#/listings?property_id=${prop.id}`);
+  });
+  root.querySelector('[data-confirm]')?.addEventListener('click', async () => {
+    try {
+      const result = await api.post(`/api/properties/${prop.id}/confirm`, { note: null });
+      toast(result.reconfirmed ? '已完成受影响后重新确认' : '主档已确认');
+      close();
+      openCluster(view, ctx, summary);
+    } catch (err) {
+      toast(errorMessage(err), 'err');
+    }
   });
 }
 

@@ -38,3 +38,12 @@ def reviews_csv(
     principal: dict = Depends(require_roles(*EXPORT_ROLES)),
 ):
     return export_controller.reviews_csv(db, status, principal, request)
+
+
+@router.get("/bank-list.csv")
+def bank_list_csv(
+    request: Request,
+    db: Session = Depends(get_db),
+    principal: dict = Depends(require_roles(*EXPORT_ROLES)),
+):
+    return export_controller.bank_list_csv(db, principal, request)

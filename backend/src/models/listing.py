@@ -45,5 +45,8 @@ class Listing(Base):
         ForeignKey("properties.id", ondelete="SET NULL"), nullable=True, index=True
     )
     risk_tags: Mapped[list] = mapped_column(JSON, default=list)
+    # 当前生效的修正版本（listing_corrections.id；NULL = 仍是原始采集版本 v0）。
+    # 不加外键：与 listing_corrections.listing_id 互为循环依赖，由应用层维护。
+    current_correction_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)

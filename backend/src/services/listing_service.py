@@ -49,6 +49,7 @@ def serialize(listing: Listing, agency: Agency | None = None, prop: Property | N
         "property_community": prop.community if prop else None,
         "property_layout": prop.layout if prop else None,
         "property_risk_level": prop.risk_level if prop else None,
+        "current_correction_id": listing.current_correction_id,
     }
 
 

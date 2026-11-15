@@ -76,12 +76,14 @@ class TriggerKind(StrEnum):
     MANUAL = "manual"
     SCHEDULE = "schedule"
     SEED = "seed"
+    CORRECTION = "correction"
 
 
 TRIGGER_LABELS: dict[str, str] = {
     TriggerKind.MANUAL.value: "手动",
     TriggerKind.SCHEDULE.value: "定时",
     TriggerKind.SEED.value: "初始化",
+    TriggerKind.CORRECTION.value: "修正重算",
 }
 
 
@@ -157,4 +159,66 @@ REVIEW_REASON_LABELS: dict[str, str] = {
     ReviewReason.STALE.value: "疑似僵尸挂牌",
     ReviewReason.SPREAD.value: "簇内价差异常",
     ReviewReason.MANUAL.value: "人工抽查",
+}
+
+
+class EvidenceField(StrEnum):
+    """主档 golden record 里需要落证据的字段。"""
+
+    AREA = "area"
+    PRICE = "price"
+    LAYOUT = "layout"
+
+
+EVIDENCE_FIELD_LABELS: dict[str, str] = {
+    EvidenceField.AREA.value: "面积",
+    EvidenceField.PRICE.value: "价格",
+    EvidenceField.LAYOUT.value: "户型",
+}
+
+EVIDENCE_FIELD_ORDER: list[str] = [
+    EvidenceField.AREA.value,
+    EvidenceField.PRICE.value,
+    EvidenceField.LAYOUT.value,
+]
+
+
+class EvidenceStatus(StrEnum):
+    """字段证据状态：有效 / 已被上游修正作废。"""
+
+    VALID = "valid"
+    INVALIDATED = "invalidated"
+
+
+EVIDENCE_STATUS_LABELS: dict[str, str] = {
+    EvidenceStatus.VALID.value: "有效",
+    EvidenceStatus.INVALIDATED.value: "已失效",
+}
+
+
+class EvidenceRule(StrEnum):
+    """golden record 字段的采信规则。"""
+
+    MODE = "mode"
+    MEDIAN = "median"
+
+
+EVIDENCE_RULE_LABELS: dict[str, str] = {
+    EvidenceRule.MODE.value: "簇内众数",
+    EvidenceRule.MEDIAN.value: "簇内中位",
+}
+
+
+class ConfirmationState(StrEnum):
+    """主档确认状态（相对当前 revision）。"""
+
+    PENDING = "pending"
+    CONFIRMED = "confirmed"
+    RECONFIRMED = "reconfirmed"
+
+
+CONFIRMATION_STATE_LABELS: dict[str, str] = {
+    ConfirmationState.PENDING.value: "待确认",
+    ConfirmationState.CONFIRMED.value: "已确认",
+    ConfirmationState.RECONFIRMED.value: "受影响后重新确认",
 }

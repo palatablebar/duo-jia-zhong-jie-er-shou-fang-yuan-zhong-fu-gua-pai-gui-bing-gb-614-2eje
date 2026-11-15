@@ -8,6 +8,12 @@
 同一套房只留一份主档（价格中位 / 面积众数 / 中介去重计数），
 价格离群（钓鱼价）与超期无带看（僵尸挂牌）单独进复核队列，导出清单带全部算法读数。
 
+主档可解释性（修正 → 证据 → 银行清单）：
+每条挂牌的修正都追加版本（`listing_corrections`，幂等键 `correction_key`，重试不重复入库）；
+主档的面积 / 价格 / 户型逐字段落证据（`field_evidences`：采信了哪家中介、哪条原文、哪个挂牌版本）；
+上游修正到达后，引用旧版本的证据失效留痕，受影响房源簇确定性重算并 `revision +1`，未受影响簇保持原值、证据与确认不变；
+银行清单只列当前有效且证据齐全的房源，并标出「受影响后重新确认」的结果。
+
 ## 1. 运行
 
 ```bash
@@ -30,19 +36,22 @@ docker compose down -v --remove-orphans
 
 演示账号（密码 `Demo@2026`）：`admin@listingmerge.io` / `analyst@listingmerge.io` / `viewer@listingmerge.io`。
 
-## 2. 五个领域实体
+## 2. 八个领域实体
 
 | 实体 | 表 | 作用 | 自然键 |
 | --- | --- | --- | --- |
 | Agency 中介渠道 | `agencies` | 9 家挂牌来源、采集入口与口径 | `code` |
 | Listing 原始挂牌 | `listings` | 采集原文 + 归一结果 + 所属簇 | `(agency_id, lid)` |
-| Property 房源簇 | `properties` | golden record：面积众数/价格中位/中介数/风险分 | `cluster_key`（成员挂牌哈希） |
-| MatchRun 归并重算 | `match_runs` | 每次算法 A+B 的输入输出与耗时 | `run_no` / `seed_key` |
+| Property 房源簇 | `properties` | golden record：面积众数/价格中位/中介数/风险分 + `revision`/`is_current`/`evidence_complete` | `cluster_key`（成员挂牌哈希） |
+| MatchRun 归并重算 | `match_runs` | 每次算法 A+B 的输入输出与耗时（含修正触发的重算） | `run_no` / `seed_key` |
 | Review 复核单 | `reviews` | 风险簇的人工结论（待复核/确认/驳回） | `seed_key` |
+| ListingCorrection 挂牌修正版本 | `listing_corrections` | 每条修正追加一版（字段级 old→new），永不覆盖 | `correction_key`（幂等键） |
+| FieldEvidence 字段证据 | `field_evidences` | 主档每个字段采信的中介/挂牌版本/采集原文；失效留痕不删除 | `(property_id, field, listing_id, status)` |
+| PropertyConfirmation 主档确认 | `property_confirmations` | 按 `revision` 对齐的确认记录；落后即需重新确认 | — |
 
 每个实体都贯穿：表 → `models/` → `schemas/` → `services/` → `controllers/` → `routes/` → 前端 `api.js` + 页面。
 
-## 3. 业务模块表（6 个）
+## 3. 业务模块表（8 个）
 
 | 模块 | 页面 | services + controller | 主要 API |
 | --- | --- | --- | --- |
@@ -51,9 +60,17 @@ docker compose down -v --remove-orphans
 | ③ 分块与相似度 | `#/clusters` 归并簇（成员对照） | `entity_resolution`（blocking / similarity / UnionFind） | 由 `POST /api/runs` 驱动，读数见 `GET /api/runs/{id}` |
 | ④ 聚类与 golden record | `#/clusters` 归并簇 | `entity_resolution.resolve` + `pipeline_service` + `property_service` + `property_controller.py` | `GET /api/properties`、`GET /api/properties/{id}`、`POST /api/runs` |
 | ⑤ 风险与复核 | `#/reviews` 复核与导出 | `risk_rules` + `review_service` + `review_controller.py` | `GET /api/reviews`、`PATCH /api/reviews/{id}`、`GET /api/overview` |
-| ⑥ 导出 | `#/reviews` 复核与导出 | `export_service` + `export_controller.py` | `GET /api/exports/{clusters,listings,reviews}.csv` |
+| ⑥ 导出 | `#/reviews` 复核与导出 | `export_service` + `export_controller.py` | `GET /api/exports/{clusters,listings,reviews,bank-list}.csv` |
+| ⑦ 修正与证据 | `#/listings` 抽屉（修正版本 + 登记修正）、`#/clusters` 抽屉（字段证据） | `correction_service` + `evidence_service` + `correction_controller.py` | `POST /api/corrections`、`GET /api/corrections`、`GET /api/listings/{id}/corrections`、`GET /api/properties/{id}/evidence` |
+| ⑧ 银行清单 | `#/bank` 银行清单 | `bank_list_service` + `bank_list_controller.py` | `GET /api/bank-list`、`POST /api/properties/{id}/confirm`、`GET /api/exports/bank-list.csv` |
 
 横切能力（不计入业务模块）：登录 JWT（`auth_service` / `routes/auth.py`）、审计日志（`middlewares/audit_logger.py` + `audit_service` + `routes/audit.py`）、限流（`middlewares/rate_limit.py`）。
+
+### 修正 → 证据 → 银行清单 的链路口径
+
+- **修正版本**：`POST /api/corrections` 以 `correction_key` 为幂等键；同一修正重试返回 200 + `deduplicated=true`，不新增版本、不重复作废证据、不重复触发重算。每条版本记录字段级 `old → new`。
+- **证据失效与重算**：修正触及面积/价格/户型原文时，引用该挂牌的有效证据立即置为 `invalidated`（留痕）；随后触发一次 `trigger=correction` 的确定性重算——只有主档内容真正变化的房源簇才更新（`updated_at` 才移动），未受影响簇的行、证据、确认全部保持不变；受影响簇 `revision +1` 并重建证据。
+- **银行清单**：只列 `is_current` 且 `evidence_complete`（面积/价格/户型均有有效证据）的房源；`POST /api/properties/{id}/confirm` 按当前 `revision` 确认，受影响后再次确认的房源在清单与 CSV 中标为「受影响后重新确认」。
 
 ## 4. 两个算法（纯 Python，结果进页面与导出）
 
@@ -82,17 +99,20 @@ docker compose down -v --remove-orphans
 | 风险标签 `bait/stale/spread` | `constants/enums.py::RiskTag` + `RISK_TAG_LABELS` | `js/config.js::ENUMS.riskTag`、`tagTone()` |
 | 挂牌状态 `active/sold/off_market` | `constants/enums.py::ListingStatus` | `js/config.js::ENUMS.listingStatus`、`statusTone()` |
 | 渠道类型 `broker/platform/feed` | `constants/enums.py::AgencyKind` | `js/config.js::ENUMS.agencyKind` |
-| 复核状态/原因、运行状态、触发方式 | `enums.py::ReviewStatus/ReviewReason/RunStatus/TriggerKind` | `js/config.js::ENUMS.reviewStatus/reviewReason/runStatus/trigger` |
+| 复核状态/原因、运行状态、触发方式（含 `correction`） | `enums.py::ReviewStatus/ReviewReason/RunStatus/TriggerKind` | `js/config.js::ENUMS.reviewStatus/reviewReason/runStatus/trigger` |
+| 证据字段/状态/规则 `area,price,layout` / `valid,invalidated` / `mode,median` | `enums.py::EvidenceField/EvidenceStatus/EvidenceRule` | `js/config.js::ENUMS.evidenceField/evidenceStatus/evidenceRule` |
+| 确认状态 `pending/confirmed/reconfirmed` | `enums.py::ConfirmationState` | `js/config.js::ENUMS.confirmationState`、`confirmationTone()` |
 | 角色与权限点 | `constants/roles.py::PERMISSIONS` | `js/config.js::PERMISSIONS` + `can()` |
 
-## 6. 页面（6 个）
+## 6. 页面（7 个）
 
 1. `#/login` 登录 —— 橱窗房源贴：4 张挂牌便签（3 家原文 + 1 张已归并）。
 2. `#/overview` 总览 —— 挂牌数 / 归并簇 / 去重率 / 风险簇四张价签 + 中介覆盖 + 风险台账 + 近 7 天重算。
 3. `#/agencies` 中介与采集 —— 9 家渠道表 + 抽屉（采集口径、挂牌样例、暂停采集）+ 登记渠道。
-4. `#/listings` 挂牌明细 —— 原文 → 归一 对照、归一标记、所属簇；按中介/状态/风险筛选。
-5. `#/clusters` 归并簇 —— 簇列表（价差/成员/置信/风险）+ 抽屉（成员对照表、golden record、钓鱼/僵尸命中）+ 全量重算 + 运行历史。
-6. `#/reviews` 复核与导出 —— 复核队列 + 复核结论表单 + 三种 CSV 导出 + 管理员审计日志。
+4. `#/listings` 挂牌明细 —— 原文 → 归一 对照、归一标记、所属簇；抽屉含修正版本时间线与「登记上游修正」表单；按中介/状态/风险筛选。
+5. `#/clusters` 归并簇 —— 簇列表（价差/成员/置信/风险）+ 抽屉（成员对照表、golden record、字段证据与失效历史、确认状态、钓鱼/僵尸命中）+ 全量重算 + 运行历史。
+6. `#/reviews` 复核与导出 —— 复核队列 + 复核结论表单 + 四种 CSV 导出 + 管理员审计日志。
+7. `#/bank` 银行清单 —— 只列当前有效且证据齐全的房源：三字段证据（中介 + 原文）、确认状态、「受影响后重新确认」标记 + 确认操作 + 银行清单 CSV。
 
 共用组件：`ui.js` 的 `table` / `drawer` / `filter-bar` 在 3、4、5、6 四个页面复用；`badge`、`kv`、`emptyState` 全站复用。
 
@@ -102,8 +122,9 @@ docker compose down -v --remove-orphans
 原始写法随机混用 `㎡ / 平米 / 建面 / 建筑面积 / 平方米（套内…）`、`万 / 元 / 总价…万 / 万（可谈）`、`3/18 / 3层/共18层 / 低楼层(共18层)`；
 含 2 条脏数据（楼层缺失、价格面议）。
 
-跑完算法 A/B 后：**386 个房源簇**（41 个多成员簇，去重率 28.52%）、**6 个风险簇**（1 个钓鱼价簇含 2 条 bait、5 条僵尸挂牌）、**6 张待复核单**。
-特别注意：`翠湖名邸 3-2-1 89.5㎡` 在 4 家中介交叉命中，价格 598/602/606/610 万，价差 12 万，中位 604 万。
+跑完算法 A/B 后：**386 个房源簇**（41 个多成员簇，去重率 28.52%）、**6 个风险簇**（1 个钓鱼价簇含 2 条 bait、5 条僵尸挂牌）、**6 张待复核单**；
+每次重算同时为新建/变化的簇落字段证据（seed 结束 385 个簇证据齐全，1 个簇因「价格面议」证据不全，不进银行清单）。
+特别注意：`翠湖名邸 3-2-1 89.5㎡` 在 4 家中介交叉命中，价格 598/602/606/610 万，价差 12 万，中位 604 万（偶数条中位取中间两条挂牌共同为价格证据）。
 
 seed 结束打印一行（连续两次逐字一致）：
 
@@ -115,21 +136,23 @@ SEED_SUMMARY brand=listingmerge users=3 sources=9 runs=2 findings=386 pending=6
 
 | 能力 | admin | analyst | viewer |
 | --- | --- | --- | --- |
-| 读总览/挂牌/簇/复核 | ✅ | ✅ | ✅ |
+| 读总览/挂牌/簇/复核/修正版本/证据/银行清单 | ✅ | ✅ | ✅ |
 | 登记/改中介渠道 | ✅ | ❌ 403 | ❌ 403 |
 | 发起全量重算 | ✅ | ✅ | ❌ 403 |
 | 提交复核结论 | ✅ | ✅ | ❌ 403 |
-| 导出 CSV | ✅ | ✅ | ❌ 403 |
+| 登记上游修正 | ✅ | ✅ | ❌ 403 |
+| 确认房源主档 | ✅ | ✅ | ❌ 403 |
+| 导出 CSV（含银行清单） | ✅ | ✅ | ❌ 403 |
 | 审计日志 | ✅ | ❌ 403 | ❌ 403 |
 
-无 token 一律 401；非法参数 422；重复编码 409。
+无 token 一律 401；非法参数 422；重复编码 409；同一 `correction_key` 重试返回 200 幂等去重。
 
 ## 9. 目录
 
 ```
 backend/src/{config,constants,controllers,middlewares,models,routes,schemas,services,utils}
 backend/scripts/{seed_demo.py,demo_config.py,worker_healthcheck.sh}
-backend/migrations/001_core_tables.sql   # DDL 参考（运行时由 create_all 建表）
+backend/migrations/{001_core_tables.sql,002_corrections_evidence.sql}   # DDL 参考（运行时由 create_all 建表）
 frontend/site/{index.html,css/{tokens,app}.css,js/{config,api,store,ui,app}.js,js/pages/*.js}
 docker-compose.yml  .env  README.md
 ```

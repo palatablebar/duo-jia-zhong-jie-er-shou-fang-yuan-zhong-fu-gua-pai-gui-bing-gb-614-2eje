@@ -4,6 +4,8 @@ from fastapi import APIRouter
 from src.routes.agencies import router as agencies_router
 from src.routes.audit import router as audit_router
 from src.routes.auth import router as auth_router
+from src.routes.bank_list import router as bank_list_router
+from src.routes.corrections import router as corrections_router
 from src.routes.exports import router as exports_router
 from src.routes.health import router as health_router
 from src.routes.listings import router as listings_router
@@ -19,6 +21,8 @@ api_router.include_router(overview_router)
 api_router.include_router(agencies_router)
 api_router.include_router(listings_router)
 api_router.include_router(properties_router)
+api_router.include_router(corrections_router)
+api_router.include_router(bank_list_router)
 api_router.include_router(runs_router)
 api_router.include_router(reviews_router)
 api_router.include_router(exports_router)

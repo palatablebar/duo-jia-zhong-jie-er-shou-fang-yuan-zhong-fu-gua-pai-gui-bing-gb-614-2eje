@@ -96,6 +96,7 @@ export const reviewsPage = {
               canExport
                 ? `<button class="btn sm ghost" id="export-reviews">复核 CSV</button>
                    <button class="btn sm ghost" id="export-listings">挂牌 CSV</button>
+                   <button class="btn sm ghost" id="export-bank">银行清单 CSV</button>
                    <button class="btn sm ghost accent" id="export-clusters">归并簇 CSV</button>`
                 : '<span class="mono muted">只读角色不能导出</span>'
             }
@@ -174,6 +175,7 @@ export const reviewsPage = {
     view.querySelector('#export-clusters')?.addEventListener('click', () => download('/api/exports/clusters.csv', 'clusters.csv', '归并簇清单'));
     view.querySelector('#export-listings')?.addEventListener('click', () => download('/api/exports/listings.csv', 'listings.csv', '挂牌明细'));
     view.querySelector('#export-reviews')?.addEventListener('click', () => download('/api/exports/reviews.csv', 'reviews.csv', '复核单'));
+    view.querySelector('#export-bank')?.addEventListener('click', () => download('/api/exports/bank-list.csv', 'bank-list.csv', '银行清单'));
     const fold = view.querySelector('#audit-fold');
     fold?.addEventListener('toggle', () => {
       if (fold.open) auditPanel(view, ctx);

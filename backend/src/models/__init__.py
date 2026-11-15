@@ -13,5 +13,20 @@ from src.models.listing import Listing  # noqa: E402
 from src.models.property import Property  # noqa: E402
 from src.models.match_run import MatchRun  # noqa: E402
 from src.models.review import Review  # noqa: E402
+from src.models.correction import ListingCorrection  # noqa: E402
+from src.models.evidence import FieldEvidence  # noqa: E402
+from src.models.confirmation import PropertyConfirmation  # noqa: E402
 
-__all__ = ["Base", "User", "AuditLog", "Agency", "Listing", "Property", "MatchRun", "Review"]
+__all__ = [
+    "Base",
+    "User",
+    "AuditLog",
+    "Agency",
+    "Listing",
+    "Property",
+    "MatchRun",
+    "Review",
+    "ListingCorrection",
+    "FieldEvidence",
+    "PropertyConfirmation",
+]

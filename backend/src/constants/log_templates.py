@@ -8,8 +8,12 @@ ACTIONS: dict[str, str] = {
     "run.create": "发起归并重算",
     "run.complete": "归并完成",
     "review.submit": "提交复核",
+    "correction.apply": "应用挂牌修正",
+    "correction.duplicate": "修正重试去重",
+    "property.confirm": "确认房源主档",
     "export.clusters": "导出归并簇",
     "export.listings": "导出挂牌明细",
+    "export.bank_list": "导出银行清单",
     "review.seed": "初始化复核单",
     "http.mutation": "写请求",
 }
